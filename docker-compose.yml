@@ -1,77 +1,95 @@
 version: '3.8'
 
 services:
+  # PostgreSQL database - stores transactions and webhook audit logs
   postgres:
     image: postgres:15-alpine
     container_name: mpesa_postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: mpesa
       POSTGRES_PASSWORD: mpesa_dev_password
       POSTGRES_DB: mpesa_gateway
     ports:
-      - "5432:5432"
+      - "5433:5432" # Host:Container - avoids conflict with local PostgreSQL
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Auto-run migrations on first startup
       - ./migrations:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mpesa"]
+      test: [ "CMD-SHELL", "pg_isready -U mpesa" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # Redis - task queue for async callback processing
   redis:
     image: redis:7-alpine
     container_name: mpesa_redis
+    restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6380:6379" # Host:Container - avoids conflict with local Redis
+    volumes:
+      # Optional: persist Redis data
+      - redis_data:/data
+    command: redis-server --appendonly yes
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # API Server - handles HTTP requests
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: mpesa_api
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "8081:8080" # Host:Container - avoids conflict with other services
+    # Load environment variables from .env file
+    env_file:
+      - .env
     environment:
+      # Override with Docker-specific values
       MPESA_SERVER_PORT: "8080"
       MPESA_DATABASE_URL: "postgres://mpesa:mpesa_dev_password@postgres:5432/mpesa_gateway?sslmode=disable"
       MPESA_REDIS_URL: "redis://redis:6379/0"
       MPESA_INTERNAL_SECRET: "dev-secret-change-in-production"
-      MPESA_SAFARICOM_CONSUMER_KEY: "${SAFARICOM_CONSUMER_KEY}"
-      MPESA_SAFARICOM_CONSUMER_SECRET: "${SAFARICOM_CONSUMER_SECRET}"
-      MPESA_SAFARICOM_PASSKEY: "${SAFARICOM_PASSKEY}"
-      MPESA_SAFARICOM_SHORT_CODE: "${SAFARICOM_SHORT_CODE}"
-      MPESA_SAFARICOM_CALLBACK_URL: "${SAFARICOM_CALLBACK_URL}"
-      MPESA_SAFARICOM_IPS: ""  # Empty for development
-    command: ["./api"]
+      # Safaricom credentials loaded from .env file
+      MPESA_SAFARICOM_IPS: "" # Empty for development - allows all IPs
+    command: [ "./api" ]
 
+  # Worker - processes M-Pesa callbacks and delivers webhooks
   worker:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: mpesa_worker
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # Load environment variables from .env file
+    env_file:
+      - .env
     environment:
+      # Override with Docker-specific values
       MPESA_DATABASE_URL: "postgres://mpesa:mpesa_dev_password@postgres:5432/mpesa_gateway?sslmode=disable"
       MPESA_REDIS_URL: "redis://redis:6379/0"
       MPESA_WORKER_CONCURRENCY: "10"
-    command: ["./worker"]
+    command: [ "./worker" ]
     deploy:
       replicas: 1
 
 volumes:
   postgres_data:
+  redis_data:

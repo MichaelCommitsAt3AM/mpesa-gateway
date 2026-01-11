@@ -2,32 +2,38 @@
 
 A production-grade, security-hardened payment gateway for integrating Safaricom's M-Pesa STK Push. Built with Go following "boring technology" principles.
 
-## Architecture Overview
+## TL;DR - Quick Start
 
+```bash
+# 1. Clone and setup
+git clone <repository-url> && cd mpesa_gateway
+make setup
+
+# 2. Edit .env with your Safaricom credentials
+nano .env  # Add your Consumer Key, Secret, Passkey, etc.
+
+# 3. Start everything
+make up
+
+# ✓ Done! API running at http://localhost:8081
 ```
-┌─────────────┐      ┌──────────────┐      ┌─────────────┐
-│   Client    │─────▶│  API Server  │─────▶│  Safaricom  │
-│  (Tenant)   │      │   (Chi/HTTP) │      │   M-Pesa    │
-└─────────────┘      └──────┬───────┘      └─────────────┘
-                            │                      │
-                            ▼                      │
-                     ┌──────────────┐              │
-                     │  PostgreSQL  │              │
-                     │  (Txs + Audit)│             │
-                     └──────────────┘              │
-                            │                      │
-                            │                      ▼
-                     ┌──────────────┐      ┌─────────────┐
-                     │    Redis     │      │  Callback   │
-                     │  (Asynq)    │◀─────│  Endpoint   │
-                     └──────┬───────┘      └─────────────┘
-                            │
-                            ▼
-                     ┌──────────────┐      ┌─────────────┐
-                     │   Worker     │─────▶│   Tenant    │
-                     │  (Processor) │      │  Webhook    │
-                     └──────────────┘      └─────────────┘
-```
+
+**What you get:**
+- ✅ PostgreSQL (auto-migrated)
+- ✅ Redis (queue management)
+- ✅ API Server (port 8081)
+- ✅ Background Worker (callback processing)
+
+**Useful commands:**
+- `make logs` - View logs
+- `make ps` - Service status
+- `make down` - Stop services
+- `make help` - All commands
+
+**Need details?** Read on below ⬇️
+
+---
+
 
 ### Key Features
 
@@ -39,42 +45,44 @@ A production-grade, security-hardened payment gateway for integrating Safaricom'
 - **Webhook Reliability**: Exponential backoff retries with full audit trail
 - **Horizontal Scaling**: Separate API and worker processes
 
-## Project Structure
-
-```
-mpesa_gateway/
-├── cmd/
-│   ├── api/main.go           # HTTP API server entry point
-│   └── worker/main.go        # Background worker entry point
-├── internal/
-│   ├── config/               # Configuration management (koanf)
-│   ├── database/             # PostgreSQL connection pool (pgx)
-│   ├── middleware/           # HTTP middleware (auth, IP filter, limits)
-│   ├── models/               # Domain models and state machine
-│   ├── mpesa/                # M-Pesa token service & helpers
-│   ├── payment/              # Payment business logic (STK Push)
-│   ├── queue/                # Redis queue setup (Asynq)
-│   ├── server/               # Chi router configuration
-│   ├── transport/http/       # HTTP handlers
-│   └── worker/               # Callback processor & webhook delivery
-├── migrations/
-│   └── 001_initial_schema.sql
-├── Dockerfile
-├── docker-compose.yml
-├── .env.example
-└── README.md
-```
 
 ## Prerequisites
 
-- Go 1.22+
-- PostgreSQL 13+
-- Redis 6+
-- Safaricom M-Pesa Developer Account ([Daraja Portal](https://developer.safaricom.co.ke/))
+- **Docker** and **Docker Compose** ([Install Docker](https://docs.docker.com/get-docker/))
+- **Safaricom M-Pesa Developer Account** ([Daraja Portal](https://developer.safaricom.co.ke/))
 
-## Quick Start
+> **Local Development Only**: Go 1.22+, PostgreSQL 13+, Redis 6+ (only if running without Docker)
 
-### 1. Clone and Setup
+## Quick Start (Recommended)
+
+### One-Command Setup
+
+```bash
+# 1. Clone the repository
+git clone <repository-url>
+cd mpesa_gateway
+
+# 2. Setup environment
+make setup
+
+# 3. Edit .env with your Safaricom credentials
+nano .env  # or use your preferred editor
+
+# 4. Start all services
+make up
+
+# ✓ Done! API is now running at http://localhost:8081
+```
+
+That's it! The setup includes:
+- ✅ PostgreSQL with auto-migration
+- ✅ Redis for queue management
+- ✅ API server on port 8081
+- ✅ Background worker for callbacks
+
+### Detailed Docker Compose Setup
+
+#### 1. Clone and Configure
 
 ```bash
 git clone <repository-url>
@@ -82,55 +90,129 @@ cd mpesa_gateway
 
 # Copy environment template
 cp .env.example .env
-
-# Edit .env with your Safaricom credentials
-nano .env
 ```
 
-### 2. Database Setup
+#### 2. Edit Environment Variables
+
+Open `.env` and configure your Safaricom credentials:
 
 ```bash
-# Start PostgreSQL (or use docker-compose)
+# Required: Get these from https://developer.safaricom.co.ke/
+MPESA_SAFARICOM_CONSUMER_KEY=your_consumer_key_here
+MPESA_SAFARICOM_CONSUMER_SECRET=your_consumer_secret_here
+MPESA_SAFARICOM_PASSKEY=your_passkey_here
+MPESA_SAFARICOM_SHORT_CODE=174379  # Your business short code (Currently used default)
+
+# Required: Your public callback URL (must be accessible from Safaricom)
+MPESA_SAFARICOM_CALLBACK_URL=https://your-domain.com/callback
+
+# Optional: Change internal secret for production
+MPESA_INTERNAL_SECRET=change-this-to-a-strong-random-secret
+```
+
+#### 3. Start Services
+
+```bash
+# Start all services (PostgreSQL, Redis, API, Worker)
+docker compose up -d
+
+# Or use Makefile shortcut
+make up
+```
+
+#### 4. Verify Setup
+
+```bash
+# Check service status
+make ps
+
+# View logs
+make logs
+
+# Test health endpoint
+curl http://localhost:8081/health
+```
+
+### Useful Commands
+
+```bash
+make help        # Show all available commands
+make up          # Start all services
+make down        # Stop all services
+make restart     # Restart services
+make ps          # Show service status
+make logs        # Follow logs
+make shell-api   # Shell into API container
+make shell-db    # Shell into database
+```
+
+### Port Mappings
+
+The Docker containers use non-standard ports to avoid conflicts with locally running services:
+
+| Service | Host Port | Container Port | Access URL |
+|---------|-----------|----------------|------------|
+| API | 8081 | 8080 | http://localhost:8081 |
+| PostgreSQL | 5433 | 5432 | localhost:5433 |
+| Redis | 6380 | 6379 | localhost:6380 |
+
+**Why non-standard ports?**
+- Avoids conflicts with local PostgreSQL (5432), Redis (6379), or other APIs (8080)
+- Allows running both Docker and local services simultaneously
+- Enables hybrid development (e.g., local Go app + Docker databases)
+
+**Example: Connect to PostgreSQL from host**
+```bash
+psql -h localhost -p 5433 -U mpesa -d mpesa_gateway
+# or
+make shell-db  # Shortcut to connect
+```
+
+
+## Alternative: Local Development (Without Docker)
+
+If you prefer to run services locally without Docker:
+
+### 1. Start Dependencies
+
+```bash
+# Terminal 1: Start PostgreSQL
 docker run --name mpesa_postgres \
+  -e POSTGRES_USER=mpesa \
   -e POSTGRES_PASSWORD=mpesa_password \
   -e POSTGRES_DB=mpesa_gateway \
   -p 5432:5432 -d postgres:15-alpine
 
 # Run migrations
-psql -h localhost -U postgres -d mpesa_gateway -f migrations/001_initial_schema.sql
-```
+psql -h localhost -U mpesa -d mpesa_gateway -f migrations/001_initial_schema.sql
 
-### 3. Install Dependencies
-
-```bash
-go mod download
-```
-
-### 4. Run Locally
-
-```bash
-# Terminal 1: Start Redis
+# Terminal 2: Start Redis
 docker run --name mpesa_redis -p 6379:6379 -d redis:7-alpine
+```
 
-# Terminal 2: Start API server
+### 2. Configure Environment
+
+```bash
+cp .env.example .env
+nano .env  # Edit with local database URLs
+```
+
+Update `.env` for local setup:
+```bash
+MPESA_DATABASE_URL=postgres://mpesa:mpesa_password@localhost:5432/mpesa_gateway?sslmode=disable
+MPESA_REDIS_URL=redis://localhost:6379/0
+```
+
+### 3. Run Application
+
+```bash
+# Terminal 3: Start API server
 go run cmd/api/main.go
 
-# Terminal 3: Start worker (optional, API runs worker internally)
+# Terminal 4: Start worker (optional)
 go run cmd/worker/main.go
 ```
 
-### 5. Using Docker Compose (Recommended)
-
-```bash
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f api worker
-
-# Stop services
-docker-compose down
-```
 
 ## Configuration
 
@@ -349,13 +431,17 @@ docker run --env-file .env mpesa-gateway:latest ./worker
 ## Testing
 
 ### Manual Testing
+The services will be available at:
+- **API**: http://localhost:8081
+- **PostgreSQL**: localhost:5433
+- **Redis**: localhost:6380
 
 ```bash
 # Health check
-curl http://localhost:8080/health
+curl http://localhost:8081/health
 
 # Initiate payment
-curl -X POST http://localhost:8080/initiate \
+curl -X POST http://localhost:8081/initiate \
   -H "Content-Type: application/json" \
   -H "X-Internal-Secret: your-secret" \
   -d '{
@@ -366,10 +452,8 @@ curl -X POST http://localhost:8080/initiate \
   }'
 ```
 
-### Simulate Callback
-
-```bash
-curl -X POST http://localhost:8080/callback \
+# Simulate Callback
+curl -X POST http://localhost:8081/callback \
   -H "Content-Type: application/json" \
   -d '{
     "Body": {
@@ -393,7 +477,77 @@ curl -X POST http://localhost:8080/callback \
 
 ## Troubleshooting
 
+### Docker Compose Issues
+
+#### Services fail to start
+
+```bash
+# Check service logs
+make logs
+
+# or for specific service
+docker compose logs postgres
+docker compose logs redis
+docker compose logs api
+```
+
+#### Port already in use (e.g., 5432, 6379, 8080)
+
+```bash
+# Check what's using the port
+sudo lsof -i :5432  # for PostgreSQL
+sudo lsof -i :6379  # for Redis
+sudo lsof -i :8080  # for API
+
+# Option 1: Stop the conflicting service
+sudo systemctl stop postgresql  # if local PostgreSQL is running
+
+# Option 2: Change ports in docker-compose.yml
+# Edit docker-compose.yml and change port mappings, e.g., "5433:5432"
+```
+
+#### Database migrations didn't run
+
+```bash
+# Check if migrations ran
+make shell-db
+# Inside PostgreSQL:
+\dt  # List tables - should see transactions and webhook_attempts
+
+# If tables don't exist, manually run migrations
+docker exec -i mpesa_postgres psql -U mpesa -d mpesa_gateway < migrations/001_initial_schema.sql
+```
+
+#### .env file not loaded
+
+```bash
+# Verify .env exists
+ls -la .env
+
+# Restart services to reload environment
+make restart
+
+# Check if environment variables loaded correctly
+docker exec mpesa_api env | grep MPESA
+```
+
+#### Reset everything and start fresh
+
+```bash
+# Stop and remove all containers, networks, and volumes
+docker compose down -v
+
+# Remove any orphaned containers
+docker compose rm -f
+
+# Start fresh
+make up
+```
+
+## General Troubleshooting
+
 ### "Unauthorized" on /initiate
+
 
 - Check `X-Internal-Secret` header matches `MPESA_INTERNAL_SECRET`
 - Ensure no extra whitespace in secret
@@ -421,10 +575,5 @@ curl -X POST http://localhost:8080/callback \
 
 Proprietary - All Rights Reserved
 
-## Support
-
-For issues or questions, contact: [your-email@example.com]
-
 ---
 
-**Built with ❤️ using boring, battle-tested technology.**
