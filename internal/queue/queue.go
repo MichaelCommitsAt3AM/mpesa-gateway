@@ -33,22 +33,23 @@ func NewQueue(redisURL string, concurrency int) (*Queue, error) {
 	}, nil
 }
 
-// GetServerConfig returns server configuration for worker
-func (q *Queue) GetServerConfig(redisURL string, concurrency int) (*asynq.Config, error) {
+// GetServerConfig returns server configuration and Redis options for worker
+func (q *Queue) GetServerConfig(redisURL string, concurrency int) (asynq.RedisConnOpt, *asynq.Config, error) {
 	redisOpt, err := asynq.ParseRedisURI(redisURL)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return &asynq.Config{
+	cfg := &asynq.Config{
 		Concurrency: concurrency,
 		Queues: map[string]int{
 			"critical": 6,
 			"default":  3,
 			"low":      1,
 		},
-		RedisConnOpt: redisOpt,
-	}, nil
+	}
+
+	return redisOpt, cfg, nil
 }
 
 // Close gracefully closes the queue client

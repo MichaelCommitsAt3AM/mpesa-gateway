@@ -8,9 +8,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"mpesa-gateway/internal/config"
-	customMiddleware "mpesa-gateway/internal/middleware"
-	"mpesa-gateway/internal/transport/http/handlers"
+	"github.com/mpesa-gateway/internal/config"
+	customMiddleware "github.com/mpesa-gateway/internal/middleware"
+	"github.com/mpesa-gateway/internal/handlers"
 )
 
 // Server wraps the HTTP server

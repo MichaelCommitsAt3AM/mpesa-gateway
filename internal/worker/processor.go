@@ -17,8 +17,8 @@ import (
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"mpesa-gateway/internal/models"
-	"mpesa-gateway/internal/mpesa"
+	"github.com/mpesa-gateway/internal/models"
+	"github.com/mpesa-gateway/internal/mpesa"
 )
 
 const (

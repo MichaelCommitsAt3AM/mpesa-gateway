@@ -11,8 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"mpesa-gateway/internal/payment"
-	"mpesa-gateway/internal/worker"
+	"github.com/mpesa-gateway/internal/payment"
+	"github.com/mpesa-gateway/internal/worker"
 	"github.com/shopspring/decimal"
 )
 

@@ -4,11 +4,11 @@ go 1.22
 
 require (
 	github.com/go-chi/chi/v5 v5.0.11
-	github.com/jackc/pgx/v5 v5.5.1
-	github.com/shopspring/decimal v1.3.1
-	github.com/hibiken/asynq v0.24.1
 	github.com/go-playground/validator/v10 v10.16.0
 	github.com/google/uuid v1.5.0
+	github.com/hibiken/asynq v0.24.1
+	github.com/jackc/pgx/v5 v5.5.1
+	github.com/shopspring/decimal v1.3.1
 )
 
 require (

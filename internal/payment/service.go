@@ -9,13 +9,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"mpesa-gateway/internal/models"
-	"mpesa-gateway/internal/mpesa"
+	"github.com/mpesa-gateway/internal/models"
+	"github.com/mpesa-gateway/internal/mpesa"
 	"github.com/shopspring/decimal"
 )
 
@@ -127,7 +127,9 @@ func (s *Service) InitiatePayment(ctx context.Context, req InitiatePaymentReques
 
 	if err != nil {
 		// Check for unique constraint violation (idempotency)
-		if pgErr, ok := err.(*pgx.PgError); ok && pgErr.Code == "23505" {
+		// In pgx v5, errors are in pgconn package
+		if err.Error() == "ERROR: duplicate key value violates unique constraint \"transactions_idempotency_key_key\" (SQLSTATE 23505)" ||
+			strings.Contains(err.Error(), "23505") {
 			return nil, fmt.Errorf("duplicate idempotency key: %w", err)
 		}
 		return nil, fmt.Errorf("failed to insert transaction: %w", err)

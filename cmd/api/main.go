@@ -10,14 +10,14 @@ import (
 
 	"github.com/hibiken/asynq"
 
-	"mpesa-gateway/internal/config"
-	"mpesa-gateway/internal/database"
-	"mpesa-gateway/internal/mpesa"
-	"mpesa-gateway/internal/payment"
-	"mpesa-gateway/internal/queue"
-	"mpesa-gateway/internal/server"
-	"mpesa-gateway/internal/transport/http/handlers"
-	"mpesa-gateway/internal/worker"
+	"github.com/mpesa-gateway/internal/config"
+	"github.com/mpesa-gateway/internal/database"
+	"github.com/mpesa-gateway/internal/mpesa"
+	"github.com/mpesa-gateway/internal/payment"
+	"github.com/mpesa-gateway/internal/queue"
+	"github.com/mpesa-gateway/internal/server"
+	"github.com/mpesa-gateway/internal/handlers"
+	"github.com/mpesa-gateway/internal/worker"
 )
 
 func main() {
@@ -77,17 +77,14 @@ func main() {
 	q.Server.HandleFunc(worker.TypeProcessCallback, processor.ProcessCallback)
 
 	// Start Asynq worker in background
-	serverConfig, err := q.GetServerConfig(cfg.RedisURL, cfg.WorkerConcurrency)
+	redisOpt, serverConfig, err := q.GetServerConfig(cfg.RedisURL, cfg.WorkerConcurrency)
 	if err != nil {
 		log.Fatalf("Failed to create worker config: %v", err)
 	}
 
 	asynqServer := asynq.NewServer(
-		serverConfig.RedisConnOpt,
-		asynq.Config{
-			Concurrency: serverConfig.Concurrency,
-			Queues:      serverConfig.Queues,
-		},
+		redisOpt,
+		*serverConfig,
 	)
 
 	go func() {
