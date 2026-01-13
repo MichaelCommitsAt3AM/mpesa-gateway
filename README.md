@@ -1,7 +1,6 @@
 # M-Pesa Payment Gateway Microservice
 
-A production-grade, security-hardened payment gateway for integrating Safaricom's M-Pesa STK Push. Built with Go following "boring technology" principles.
-
+A secure, production-ready payment gateway for Safaricom M-Pesa STK Push, built on the latest Daraja API 3.0 and Go for reliable, maintainable performance.
 ## TL;DR - Quick Start
 
 ```bash
