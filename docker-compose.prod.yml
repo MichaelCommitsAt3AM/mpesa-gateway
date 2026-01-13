@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # Standard Postgres Image
+  postgres:
+    image: postgres:15-alpine
+    container_name: mpesa_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: mpesa
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-mpesa_dev_password}
+      POSTGRES_DB: mpesa_gateway
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Standard Redis Image
+  redis:
+    image: redis:7-alpine
+    container_name: mpesa_redis
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  # YOUR API Service
+  api:
+    image: ghcr.io/michaelcommitsat3am/mpesa-gateway:latest
+    container_name: mpesa_api
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+    env_file: .env
+    # Default command in your Dockerfile is already ["./api"], so we don't need to specify it
+
+  # YOUR Worker Service
+  worker:
+    image: ghcr.io/michaelcommitsat3am/mpesa-gateway:latest
+    container_name: mpesa_worker
+    restart: always
+    depends_on:
+      - postgres
+      - redis
+    env_file: .env
+    # We override the command to run the worker binary instead
+    command: ["./worker"]
+
+volumes:
+  postgres_data:
+  redis_data:
