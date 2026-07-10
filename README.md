@@ -14,14 +14,14 @@ nano .env  # Add your Consumer Key, Secret, Passkey, etc.
 # 3. Start everything
 make up
 
-# ✓ Done! API running at http://localhost:8081
+# Done! API running at http://localhost:8081
 ```
 
 **What you get:**
-- ✅ PostgreSQL (auto-migrated)
-- ✅ Redis (queue management)
-- ✅ API Server (port 8081)
-- ✅ Background Worker (callback processing)
+- PostgreSQL (auto-migrated)
+- Redis (queue management)
+- API Server (port 8081)
+- Background Worker (callback processing)
 
 **Useful commands:**
 - `make logs` - View logs
@@ -29,14 +29,14 @@ make up
 - `make down` - Stop services
 - `make help` - All commands
 
-**Need details?** Read on below ⬇️
+**Need details?** Read on below
 
 ---
 
 
 ### Key Features
 
-- **Security First**: SSL verification, internal auth, IP allowlist, request size limits
+- **Security First**: SSL verification, per-tenant API key auth, IP allowlist, request size limits
 - **Non-blocking Callbacks**: Immediate 200 OK to Safaricom, queue-based processing
 - **State Machine**: Strict transaction status transitions (PENDING → COMPLETED/FAILED)
 - **Money Safety**: `shopspring/decimal` for all amounts, never float64
@@ -70,14 +70,14 @@ nano .env  # or use your preferred editor
 # 4. Start all services
 make up
 
-# ✓ Done! API is now running at http://localhost:8081
+# Done! API is now running at http://localhost:8081
 ```
 
 That's it! The setup includes:
-- ✅ PostgreSQL with auto-migration
-- ✅ Redis for queue management
-- ✅ API server on port 8081
-- ✅ Background worker for callbacks
+- PostgreSQL with auto-migration
+- Redis for queue management
+- API server on port 8081
+- Background worker for callbacks
 
 ### Detailed Docker Compose Setup
 
@@ -104,10 +104,10 @@ MPESA_SAFARICOM_SHORT_CODE=174379  # Your business short code (Currently used de
 
 # Required: Your public callback URL (must be accessible from Safaricom)
 MPESA_SAFARICOM_CALLBACK_URL=https://your-domain.com/callback
-
-# Optional: Change internal secret for production
-MPESA_INTERNAL_SECRET=change-this-to-a-strong-random-secret
 ```
+
+`/initiate` is authenticated per-tenant, not via a shared env var — see
+[Tenant Provisioning](#tenant-provisioning) to create a tenant and get an API key.
 
 #### 3. Start Services
 
@@ -182,8 +182,9 @@ docker run --name mpesa_postgres \
   -e POSTGRES_DB=mpesa_gateway \
   -p 5432:5432 -d postgres:15-alpine
 
-# Run migrations
+# Run migrations (in order)
 psql -h localhost -U mpesa -d mpesa_gateway -f migrations/001_initial_schema.sql
+psql -h localhost -U mpesa -d mpesa_gateway -f migrations/002_tenants.sql
 
 # Terminal 2: Start Redis
 docker run --name mpesa_redis -p 6379:6379 -d redis:7-alpine
@@ -222,16 +223,38 @@ All configuration is via environment variables with `MPESA_` prefix:
 | `MPESA_SERVER_PORT` | No | 8080 | HTTP server port |
 | `MPESA_DATABASE_URL` | Yes | - | PostgreSQL connection string |
 | `MPESA_REDIS_URL` | Yes | - | Redis connection string |
-| `MPESA_INTERNAL_SECRET` | Yes | - | Secret for X-Internal-Secret header |
 | `MPESA_SAFARICOM_CONSUMER_KEY` | Yes | - | Safaricom Consumer Key |
 | `MPESA_SAFARICOM_CONSUMER_SECRET` | Yes | - | Safaricom Consumer Secret |
 | `MPESA_SAFARICOM_PASSKEY` | Yes | - | Safaricom STK Push Passkey |
 | `MPESA_SAFARICOM_SHORT_CODE` | Yes | - | Business shortcode |
 | `MPESA_SAFARICOM_CALLBACK_URL` | Yes | - | Public URL for callbacks |
 | `MPESA_SAFARICOM_IPS` | No | - | Comma-separated Safaricom IPs |
+| `MPESA_TRUSTED_PROXIES` | No | - | Comma-separated reverse proxy/LB IPs or CIDRs allowed to set `X-Real-IP`/`X-Forwarded-For` (see [IP Filtering](#ip-filtering)) |
 | `MPESA_WORKER_CONCURRENCY` | No | 10 | Worker pool size |
 
 See [.env.example](.env.example) for full configuration.
+
+## Tenant Provisioning
+
+Every caller of `/initiate` must be a registered tenant. Provision one with the
+`tenantctl` CLI, which connects directly to the database (`MPESA_DATABASE_URL`):
+
+```bash
+# Local
+go run ./cmd/tenantctl create -name "Acme Corp"
+
+# Docker Compose
+docker compose exec api ./tenantctl create -name "Acme Corp"
+```
+
+This prints, once, and only once:
+- An **API key** — send it as `X-API-Key` on every `/initiate` request.
+- A **webhook signing secret** — use it to verify the `X-Signature` header on
+  webhooks delivered to your `webhook_url`.
+
+Neither value is ever returned by any API response or stored anywhere in
+recoverable form after this point (the API key is hashed at rest) — save them
+somewhere durable immediately.
 
 ## API Endpoints
 
@@ -240,7 +263,7 @@ See [.env.example](.env.example) for full configuration.
 Initiates an STK Push payment.
 
 **Headers:**
-- `X-Internal-Secret`: Your internal authentication secret
+- `X-API-Key`: Your tenant API key (see [Tenant Provisioning](#tenant-provisioning))
 - `Content-Type`: application/json
 
 **Request:**
@@ -308,7 +331,9 @@ Your `webhook_url` will receive POST requests with this payload:
 ```
 
 **Headers:**
-- `X-Signature`: HMAC-SHA256 signature for verification
+- `X-Signature`: HMAC-SHA256 signature, keyed with your tenant's webhook
+  signing secret (from [Tenant Provisioning](#tenant-provisioning)) — never a
+  value that also appears in the request/response/payload itself
 - `Content-Type`: application/json
 
 **Retry Policy:**
@@ -320,14 +345,22 @@ Your `webhook_url` will receive POST requests with this payload:
 
 ### Authentication
 
-- **Internal Auth**: All `/initiate` requests require `X-Internal-Secret` header
-- **Constant-time**: Uses `crypto/subtle` to prevent timing attacks
+- **Per-Tenant Auth**: All `/initiate` requests require an `X-API-Key` header, looked up against a hashed key in the `tenants` table (see [Tenant Provisioning](#tenant-provisioning))
+- **Webhook Signing**: Each tenant has its own `webhook_signing_secret`, provisioned out-of-band — it's never derived from or equal to any value returned by the API
 
 ### IP Filtering
 
 - **Safaricom IPs**: `/callback` endpoint validates source IP
 - **CIDR Support**: Accepts individual IPs or CIDR ranges
 - **Disable in Dev**: Empty `MPESA_SAFARICOM_IPS` allows all (dev only)
+- **Behind a reverse proxy/LB**: this app does not terminate TLS itself, so a
+  reverse proxy or cloud load balancer almost always sits in front in
+  production. By default, `X-Forwarded-For`/`X-Real-IP` are **ignored** — only
+  the raw TCP peer address is checked against `MPESA_SAFARICOM_IPS`, which
+  would be your proxy's IP, not Safaricom's. Set `MPESA_TRUSTED_PROXIES` to
+  that proxy's IP/CIDR so forwarded headers are honored, but only from that
+  trusted hop — leaving it unset while a proxy is in front will cause
+  `/callback` to reject every real Safaricom callback.
 
 ### SSL/TLS
 
@@ -414,11 +447,20 @@ docker run -p 8080:8080 --env-file .env mpesa-gateway:latest ./api
 docker run --env-file .env mpesa-gateway:latest ./worker
 ```
 
+### Graceful Shutdown
+
+The API process handles `SIGINT`/`SIGTERM` by draining before exiting: it
+stops accepting new HTTP connections and waits (up to 15s) for in-flight
+requests — e.g. a slow STK Push call mid-`/initiate` — to complete, then
+shuts down the background worker. No requests are killed outright on a
+normal deploy/restart.
+
 ### Production Checklist
 
-- [ ] Set strong `MPESA_INTERNAL_SECRET` (min 32 chars)
+- [ ] Provision tenants with `tenantctl create` and distribute API keys/webhook signing secrets securely (out-of-band, not via `.env`)
 - [ ] Use production Safaricom URLs (not sandbox)
 - [ ] Configure `MPESA_SAFARICOM_IPS` with real Safaricom IPs
+- [ ] If running behind a reverse proxy/load balancer (required for HTTPS, since this app has no TLS termination), set `MPESA_TRUSTED_PROXIES` to its IP/CIDR — otherwise `/callback` will only ever see the proxy's IP and reject real Safaricom callbacks
 - [ ] Enable PostgreSQL SSL (`sslmode=require`)
 - [ ] Set up database backups
 - [ ] Configure Redis persistence
@@ -428,6 +470,21 @@ docker run --env-file .env mpesa-gateway:latest ./worker
 - [ ] Scale workers horizontally if queue builds up
 
 ## Testing
+
+### Automated Tests
+
+```bash
+go test ./...              # full suite
+go test ./... -short       # skip Docker-backed tests (fast, no dependencies)
+go test ./... -race -cover # what CI runs
+```
+
+Some tests spin up a real, throwaway Postgres container via
+[testcontainers-go](https://github.com/testcontainers/testcontainers-go) with
+the actual migrations applied, rather than mocking the database — this
+requires a running Docker daemon. Use `-short` to skip those when Docker
+isn't available. `.github/workflows/publish.yml` runs the full suite and
+gates the Docker image build/push on it passing.
 
 ### Manual Testing
 The services will be available at:
@@ -442,7 +499,7 @@ curl http://localhost:8081/health
 # Initiate payment
 curl -X POST http://localhost:8081/initiate \
   -H "Content-Type: application/json" \
-  -H "X-Internal-Secret: your-secret" \
+  -H "X-API-Key: your-tenant-api-key" \
   -d '{
     "amount": "10",
     "phone": "254712345678",
@@ -511,10 +568,11 @@ sudo systemctl stop postgresql  # if local PostgreSQL is running
 # Check if migrations ran
 make shell-db
 # Inside PostgreSQL:
-\dt  # List tables - should see transactions and webhook_attempts
+\dt  # List tables - should see transactions, webhook_attempts, and tenants
 
-# If tables don't exist, manually run migrations
+# If tables don't exist, manually run migrations (in order)
 docker exec -i mpesa_postgres psql -U mpesa -d mpesa_gateway < migrations/001_initial_schema.sql
+docker exec -i mpesa_postgres psql -U mpesa -d mpesa_gateway < migrations/002_tenants.sql
 ```
 
 #### .env file not loaded
@@ -547,9 +605,8 @@ make up
 
 ### "Unauthorized" on /initiate
 
-
-- Check `X-Internal-Secret` header matches `MPESA_INTERNAL_SECRET`
-- Ensure no extra whitespace in secret
+- Check the `X-API-Key` header is set and matches a key issued by `tenantctl create`
+- API keys are shown only once at creation — if lost, provision a new tenant
 
 ### "Forbidden" on /callback
 
@@ -572,7 +629,7 @@ make up
 
 ## License
 
-Proprietary - All Rights Reserved
+MIT — see [LICENSE](LICENSE)
 
 ---
 

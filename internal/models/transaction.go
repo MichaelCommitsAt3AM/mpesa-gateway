@@ -11,6 +11,7 @@ import (
 type Transaction struct {
 	ID                    uuid.UUID       `db:"id"`
 	InternalTransactionID uuid.UUID       `db:"internal_transaction_id"`
+	TenantID              uuid.UUID       `db:"tenant_id"`
 	IdempotencyKey        uuid.UUID       `db:"idempotency_key"`
 	CheckoutRequestID     *string         `db:"checkout_request_id"`
 	MerchantRequestID     *string         `db:"merchant_request_id"`

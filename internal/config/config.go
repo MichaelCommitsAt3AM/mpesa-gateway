@@ -30,8 +30,12 @@ type Config struct {
 	SafaricomCallbackURL    string
 
 	// Security settings
-	InternalSecret string
-	SafaricomIPs   []string
+	SafaricomIPs []string
+
+	// TrustedProxies lists the reverse proxy/load balancer IPs or CIDRs
+	// allowed to set X-Real-IP / X-Forwarded-For. Empty means trust none —
+	// forwarded headers are ignored and the raw TCP peer address is used.
+	TrustedProxies []string
 
 	// Request limits
 	MaxRequestSize int64
@@ -64,7 +68,6 @@ func Load() (*Config, error) {
 		SafaricomCallbackURL:    getEnv("MPESA_SAFARICOM_CALLBACK_URL", ""),
 
 		// Security
-		InternalSecret: getEnv("MPESA_INTERNAL_SECRET", ""),
 		MaxRequestSize: getEnvInt64("MPESA_MAX_REQUEST_SIZE", 1<<20), // 1MB
 
 		// Worker
@@ -77,6 +80,15 @@ func Load() (*Config, error) {
 		cfg.SafaricomIPs = strings.Split(ipList, ",")
 		for i := range cfg.SafaricomIPs {
 			cfg.SafaricomIPs[i] = strings.TrimSpace(cfg.SafaricomIPs[i])
+		}
+	}
+
+	// Parse trusted proxy list
+	proxyList := getEnv("MPESA_TRUSTED_PROXIES", "")
+	if proxyList != "" {
+		cfg.TrustedProxies = strings.Split(proxyList, ",")
+		for i := range cfg.TrustedProxies {
+			cfg.TrustedProxies[i] = strings.TrimSpace(cfg.TrustedProxies[i])
 		}
 	}
 
@@ -95,9 +107,6 @@ func (c *Config) Validate() error {
 	}
 	if c.RedisURL == "" {
 		return fmt.Errorf("MPESA_REDIS_URL is required")
-	}
-	if c.InternalSecret == "" {
-		return fmt.Errorf("MPESA_INTERNAL_SECRET is required")
 	}
 	if c.SafaricomConsumerKey == "" {
 		return fmt.Errorf("MPESA_SAFARICOM_CONSUMER_KEY is required")
@@ -128,6 +137,7 @@ func (c *Config) LogSafeConfig() {
 	fmt.Printf("  Worker Concurrency: %d\n", c.WorkerConcurrency)
 	fmt.Printf("  Safaricom Short Code: %s\n", c.SafaricomShortCode)
 	fmt.Printf("  Safaricom IP Allowlist: %v\n", c.SafaricomIPs)
+	fmt.Printf("  Trusted Proxies: %v\n", c.TrustedProxies)
 	fmt.Printf("  Max Request Size: %d bytes\n", c.MaxRequestSize)
 }
 

@@ -19,6 +19,7 @@ import (
 
 	"github.com/mpesa-gateway/internal/models"
 	"github.com/mpesa-gateway/internal/mpesa"
+	"github.com/mpesa-gateway/internal/tenant"
 )
 
 const (
@@ -27,14 +28,16 @@ const (
 
 // Processor handles background job processing
 type Processor struct {
-	db     *pgxpool.Pool
-	client *http.Client
+	db      *pgxpool.Pool
+	tenants *tenant.Store
+	client  *http.Client
 }
 
 // NewProcessor creates a new worker processor
-func NewProcessor(db *pgxpool.Pool) *Processor {
+func NewProcessor(db *pgxpool.Pool, tenants *tenant.Store) *Processor {
 	return &Processor{
-		db: db,
+		db:      db,
+		tenants: tenants,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
@@ -104,13 +107,14 @@ func (p *Processor) ProcessCallback(ctx context.Context, t *asynq.Task) error {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
-	// Update transaction
+	// Update transaction. newStatus is always COMPLETED or FAILED here (set
+	// above), so completed_at is unconditionally the current time.
 	updateSQL := `
-		UPDATE transactions 
-		SET status = $1, 
-		    mpesa_metadata = $2, 
+		UPDATE transactions
+		SET status = $1,
+		    mpesa_metadata = $2,
 		    error_message = $3,
-		    completed_at = CASE WHEN $1 IN ('COMPLETED', 'FAILED') THEN NOW() ELSE completed_at END
+		    completed_at = NOW()
 		WHERE checkout_request_id = $4 AND status = 'PENDING'
 	`
 
@@ -139,9 +143,9 @@ func (p *Processor) ProcessCallback(ctx context.Context, t *asynq.Task) error {
 // getTransactionByCheckoutID fetches transaction from database
 func (p *Processor) getTransactionByCheckoutID(ctx context.Context, checkoutRequestID string) (*models.Transaction, error) {
 	query := `
-		SELECT id, internal_transaction_id, idempotency_key, checkout_request_id, 
+		SELECT id, internal_transaction_id, tenant_id, idempotency_key, checkout_request_id,
 		       amount, phone, status, tenant_webhook_url, created_at, updated_at
-		FROM transactions 
+		FROM transactions
 		WHERE checkout_request_id = $1
 	`
 
@@ -149,6 +153,7 @@ func (p *Processor) getTransactionByCheckoutID(ctx context.Context, checkoutRequ
 	err := p.db.QueryRow(ctx, query, checkoutRequestID).Scan(
 		&tx.ID,
 		&tx.InternalTransactionID,
+		&tx.TenantID,
 		&tx.IdempotencyKey,
 		&tx.CheckoutRequestID,
 		&tx.Amount,
@@ -182,8 +187,14 @@ func (p *Processor) sendWebhook(ctx context.Context, tx *models.Transaction, sta
 		return fmt.Errorf("failed to marshal webhook payload: %w", err)
 	}
 
-	// Create signature (HMAC-SHA256)
-	signature := generateSignature(payloadBytes, []byte(tx.InternalTransactionID.String()))
+	// Sign with the tenant's own webhook signing secret, never a value that
+	// is also present in the response/payload sent to the caller.
+	t, err := p.tenants.GetByID(ctx, tx.TenantID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch tenant for signing: %w", err)
+	}
+
+	signature := generateSignature(payloadBytes, []byte(t.WebhookSigningSecret))
 
 	// Send webhook with retries
 	attemptNumber := 1

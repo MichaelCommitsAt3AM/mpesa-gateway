@@ -24,25 +24,16 @@ func IPFilter(allowedIPs []string) func(http.Handler) http.Handler {
 	}
 }
 
-// getRealIP extracts the real client IP from request
+// getRealIP extracts the client IP from the request. r.RemoteAddr is the
+// single source of truth here: TrustedRealIP has already resolved it to the
+// real client address when (and only when) the immediate peer was a
+// configured trusted proxy, so no header parsing happens in this package.
 func getRealIP(r *http.Request) string {
-	// Check X-Real-IP first (set by nginx, etc.)
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return ip
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
 	}
-
-	// Check X-Forwarded-For (may contain chain of IPs)
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP in the chain
-		ips := strings.Split(xff, ",")
-		if len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
-		}
-	}
-
-	// Fall back to RemoteAddr
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-	return ip
+	// No port present, e.g. a header-derived bare IP set by TrustedRealIP.
+	return r.RemoteAddr
 }
 
 // isIPAllowed checks if client IP is in the allowlist

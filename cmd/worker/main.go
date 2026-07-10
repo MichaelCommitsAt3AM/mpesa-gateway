@@ -12,6 +12,7 @@ import (
 	"github.com/mpesa-gateway/internal/config"
 	"github.com/mpesa-gateway/internal/database"
 	"github.com/mpesa-gateway/internal/queue"
+	"github.com/mpesa-gateway/internal/tenant"
 	"github.com/mpesa-gateway/internal/worker"
 )
 
@@ -43,7 +44,8 @@ func main() {
 	defer q.Close()
 
 	// Initialize worker processor
-	processor := worker.NewProcessor(db.Pool)
+	tenantStore := tenant.NewStore(db.Pool)
+	processor := worker.NewProcessor(db.Pool, tenantStore)
 
 	// Register worker handlers
 	q.Server.HandleFunc(worker.TypeProcessCallback, processor.ProcessCallback)

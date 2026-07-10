@@ -54,6 +54,7 @@ func NewService(db *pgxpool.Pool, tokenService *mpesa.TokenService, cfg PaymentC
 
 // InitiatePaymentRequest represents the payment initiation request
 type InitiatePaymentRequest struct {
+	TenantID       uuid.UUID       `validate:"required"`
 	Amount         decimal.Decimal `validate:"required"`
 	Phone          string          `validate:"required,len=12,numeric"`
 	WebhookURL     string          `validate:"required,url"`
@@ -105,19 +106,21 @@ func (s *Service) InitiatePayment(ctx context.Context, req InitiatePaymentReques
 	// Insert initial transaction record
 	insertSQL := `
 		INSERT INTO transactions (
-			internal_transaction_id, 
-			idempotency_key, 
-			amount, 
-			phone, 
-			status, 
+			internal_transaction_id,
+			tenant_id,
+			idempotency_key,
+			amount,
+			phone,
+			status,
 			tenant_webhook_url
-		) VALUES ($1, $2, $3, $4, $5, $6)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id
 	`
 
 	var txID uuid.UUID
 	err = tx.QueryRow(ctx, insertSQL,
 		internalTxID,
+		req.TenantID,
 		req.IdempotencyKey,
 		req.Amount,
 		req.Phone,
@@ -167,6 +170,13 @@ func (s *Service) InitiatePayment(ctx context.Context, req InitiatePaymentReques
 	}, nil
 }
 
+// formatAmountForSafaricom converts a decimal amount to the integer string
+// Safaricom's STK Push API expects (no decimal places). Amounts are rounded
+// half-away-from-zero, e.g. 100.50 -> "101", 100.49 -> "100".
+func formatAmountForSafaricom(amount decimal.Decimal) string {
+	return amount.StringFixed(0)
+}
+
 // callSTKPush calls Safaricom's STK Push API
 func (s *Service) callSTKPush(ctx context.Context, phone string, amount decimal.Decimal, reference string) (string, string, error) {
 	// Get access token
@@ -187,7 +197,7 @@ func (s *Service) callSTKPush(ctx context.Context, phone string, amount decimal.
 		Password:          password,
 		Timestamp:         timestamp,
 		TransactionType:   "CustomerPayBillOnline",
-		Amount:            amount.StringFixed(0), // No decimals for Safaricom
+		Amount:            formatAmountForSafaricom(amount),
 		PartyA:            phone,
 		PartyB:            s.cfg.ShortCode,
 		PhoneNumber:       phone,

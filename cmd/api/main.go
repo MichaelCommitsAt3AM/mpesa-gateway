@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,6 +19,7 @@ import (
 	"github.com/mpesa-gateway/internal/queue"
 	"github.com/mpesa-gateway/internal/server"
 	"github.com/mpesa-gateway/internal/handlers"
+	"github.com/mpesa-gateway/internal/tenant"
 	"github.com/mpesa-gateway/internal/worker"
 )
 
@@ -67,11 +70,14 @@ func main() {
 		},
 	)
 
+	// Initialize tenant store
+	tenantStore := tenant.NewStore(db.Pool)
+
 	// Initialize HTTP handlers
 	httpHandlers := handlers.NewHandler(db.Pool, paymentService, q.Client)
 
 	// Initialize worker processor
-	processor := worker.NewProcessor(db.Pool)
+	processor := worker.NewProcessor(db.Pool, tenantStore)
 
 	// Register worker handlers
 	q.Server.HandleFunc(worker.TypeProcessCallback, processor.ProcessCallback)
@@ -95,11 +101,11 @@ func main() {
 	}()
 
 	// Initialize HTTP server
-	httpServer := server.NewServer(cfg, httpHandlers)
+	httpServer := server.NewServer(cfg, httpHandlers, tenantStore)
 
 	// Start HTTP server in background
 	go func() {
-		if err := httpServer.Start(); err != nil {
+		if err := httpServer.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("HTTP server failed: %v", err)
 		}
 	}()
@@ -111,11 +117,16 @@ func main() {
 
 	log.Println("Shutting down gracefully...")
 
+	// Stop accepting new HTTP connections and drain in-flight requests
+	// before shutting down the worker that processes their side effects.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP server did not shut down cleanly: %v", err)
+	}
+
 	// Shutdown Asynq worker
 	asynqServer.Shutdown()
-
-	// Give time for cleanup
-	time.Sleep(2 * time.Second)
 
 	log.Println("Shutdown complete")
 }

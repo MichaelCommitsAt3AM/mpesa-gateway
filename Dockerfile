@@ -24,6 +24,11 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -o /app/bin/worker \
     ./cmd/worker/main.go
 
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-s -w" \
+    -o /app/bin/tenantctl \
+    ./cmd/tenantctl
+
 # Stage 2: Runtime
 FROM alpine:latest
 
@@ -35,6 +40,7 @@ WORKDIR /root/
 # Copy binaries from builder
 COPY --from=builder /app/bin/api .
 COPY --from=builder /app/bin/worker .
+COPY --from=builder /app/bin/tenantctl .
 
 # Expose port
 EXPOSE 8080

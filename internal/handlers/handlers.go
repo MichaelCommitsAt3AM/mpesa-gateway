@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log"
@@ -11,21 +12,29 @@ import (
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/mpesa-gateway/internal/middleware"
 	"github.com/mpesa-gateway/internal/payment"
 	"github.com/mpesa-gateway/internal/worker"
 	"github.com/shopspring/decimal"
 )
 
+// PaymentInitiator is the subset of payment.Service the handlers depend on.
+// Defined here (consumer side) so tests can substitute a fake without
+// spinning up a real database.
+type PaymentInitiator interface {
+	InitiatePayment(ctx context.Context, req payment.InitiatePaymentRequest) (*payment.InitiatePaymentResponse, error)
+}
+
 // Handler holds dependencies for HTTP handlers
 type Handler struct {
 	db             *pgxpool.Pool
-	paymentService *payment.Service
+	paymentService PaymentInitiator
 	queueClient    *asynq.Client
 	validator      *validator.Validate
 }
 
 // NewHandler creates a new handler instance
-func NewHandler(db *pgxpool.Pool, paymentService *payment.Service, queueClient *asynq.Client) *Handler {
+func NewHandler(db *pgxpool.Pool, paymentService PaymentInitiator, queueClient *asynq.Client) *Handler {
 	return &Handler{
 		db:             db,
 		paymentService: paymentService,
@@ -76,8 +85,16 @@ func (h *Handler) InitiatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Tenant is attached to the request context by the TenantAuth middleware
+	tenant, ok := middleware.TenantFromContext(r.Context())
+	if !ok {
+		respondError(w, http.StatusInternalServerError, "Missing tenant context")
+		return
+	}
+
 	// Call payment service
 	paymentReq := payment.InitiatePaymentRequest{
+		TenantID:       tenant.ID,
 		Amount:         amount,
 		Phone:          req.Phone,
 		WebhookURL:     req.WebhookURL,
