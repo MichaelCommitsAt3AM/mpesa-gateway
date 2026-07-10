@@ -50,7 +50,7 @@ make up
 - **Docker** and **Docker Compose** ([Install Docker](https://docs.docker.com/get-docker/))
 - **Safaricom M-Pesa Developer Account** ([Daraja Portal](https://developer.safaricom.co.ke/))
 
-> **Local Development Only**: Go 1.22+, PostgreSQL 13+, Redis 6+ (only if running without Docker)
+> **Local Development Only**: Go 1.25+, PostgreSQL 13+, Redis 6+ (only if running without Docker)
 
 ## Quick Start (Recommended)
 
